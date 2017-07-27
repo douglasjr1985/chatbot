@@ -1,63 +1,127 @@
- // This loads the environment variables from the .env file
-require('dotenv-extended').load();
+'use strict'
 
-var restify = require('restify');
-var builder = require('botbuilder');
+const token = process.env.FB_PAGE_ACCESS_TOKEN
+const vtoken = process.env.FB_VERIFY_ACCESS_TOKEN
 
+const express = require('express')
+const bodyParser = require('body-parser')
+const request = require('request')
+const app = express()
 
-//=========================================================
-// Bot Setup
-//=========================================================
-// Setup Restify Server
-var server = restify.createServer();
-server.listen(process.env.port || process.env.PORT || 5000, function () {
-   console.log('%s listening to %s', server.name, server.url);
-});
-// Create chat bot
-var connector = new builder.ChatConnector({
-      appId: "0223da35-1906-41ae-867e-5d5aed8f1003",
-    appPassword: "HqPriUid8XLBqDvvRwkcJ7k"
-});
-var bot = new builder.UniversalBot(connector);
-server.post('/webhook', connector.listen());
-//Bot on
-bot.on('contactRelationUpdate', function (message) {
-    if (message.action === 'add') {
-        var name = message.user ? message.user.name : null;
-        var reply = new builder.Message()
-                .address(message.address)
-                .text("Hello %s... Thanks for adding me. Say 'hello' to see some great demos.", name || 'there');
-        bot.send(reply);
-    } else {
-        // delete their data
+app.set('port', (process.env.PORT || 5000))
+
+// Process application/x-www-form-urlencoded
+app.use(bodyParser.urlencoded({extended: false}))
+
+// Process application/json
+app.use(bodyParser.json())
+
+// Index route
+app.get('/', function (req, res) {
+    res.send('Hello world, I am a chat bot')
+})
+
+// for Facebook verification
+app.get('/webhook/', function (req, res) {
+    if (req.query['hub.verify_token'] === vtoken) {
+        res.send(req.query['hub.challenge'])
+        res.send('teste')
     }
-});
-bot.on('typing', function (message) {
-  // User is typing
-});
-bot.on('deleteUserData', function (message) {
-    // User asked to delete their data
-});
-//=========================================================
-// Bots Dialogs
-//=========================================================
-String.prototype.contains = function(content){
-  return this.indexOf(content) !== -1;
+    res.send('No sir')
+})
+
+// Spin up the server
+app.listen(app.get('port'), function() {
+    console.log('running on port', app.get('port'))
+})
+
+app.post('/webhook/', function (req, res) {
+    let messaging_events = req.body.entry[0].messaging
+    for (let i = 0; i < messaging_events.length; i++) {
+      let event = req.body.entry[0].messaging[i]
+      let sender = event.sender.id
+      if (event.message && event.message.text) {
+        let text = event.message.text
+        if (text === 'Generic') {
+            sendGenericMessage(sender)
+            continue
+        }
+        sendTextMessage(sender, "Message received: " + text.substring(0, 200))
+      }
+      if (event.postback) {
+        let text = JSON.stringify(event.postback)
+        sendTextMessage(sender, "Postback: "+text.substring(0, 200), token)
+        continue
+      }
+    }
+    res.sendStatus(200)
+  })
+
+
+function sendTextMessage(sender, text) {
+    let messageData = { text:text }
+    request({
+        url: 'https://graph.facebook.com/v2.6/me/messages',
+        qs: {access_token:token},
+        method: 'POST',
+        json: {
+            recipient: {id:sender},
+            message: messageData,
+        }
+    }, function(error, response, body) {
+        if (error) {
+            console.log('Error sending messages: ', error)
+        } else if (response.body.error) {
+            console.log('Error: ', response.body.error)
+        }
+    })
 }
 
-bot.dialog('/', function (session) {
-    if(session.message.text.toLowerCase().contains('oi')){
-      session.send('Hey, How are you?');
-      }else if(session.message.text.toLowerCase().contains('bom dia')){
-        session.send('Bom dia');
-      }else if(session.message.text.toLowerCase().contains('help1')){
-        session.send('How can I help you?');
-      }
-      
-      else{
-        session.send('000Sorry I don understand you...');
-      }
-});
-
-
-
+function sendGenericMessage(sender) {
+    let messageData = {
+        "attachment": {
+            "type": "template",
+            "payload": {
+                "template_type": "generic",
+                "elements": [{
+                    "title": "First card",
+                    "subtitle": "Element #1 of an hscroll",
+                    "image_url": "http://messengerdemo.parseapp.com/img/rift.png",
+                    "buttons": [{
+                        "type": "web_url",
+                        "url": "https://www.messenger.com",
+                        "title": "web url"
+                    }, {
+                        "type": "postback",
+                        "title": "Postback",
+                        "payload": "Payload for first element in a generic bubble",
+                    }],
+                }, {
+                    "title": "Second card",
+                    "subtitle": "Element #2 of an hscroll",
+                    "image_url": "http://messengerdemo.parseapp.com/img/gearvr.png",
+                    "buttons": [{
+                        "type": "postback",
+                        "title": "Postback",
+                        "payload": "Payload for second element in a generic bubble",
+                    }],
+                }]
+            }
+        }
+    }
+    request({
+        url: 'https://graph.facebook.com/v2.6/me/messages',
+        qs: {access_token:token},
+        method: 'POST',
+        json: {
+            recipient: {id:sender},
+            message: messageData,
+        }
+    }, function(error, response, body) {
+        if (error) {
+            console.log('Error sending messages: ', error)
+        } else if (response.body.error) {
+            console.log('Error: ', response.body.error)
+        }
+    })
+}
